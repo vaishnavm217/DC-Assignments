@@ -1,6 +1,7 @@
 import threading
 import random
 import time
+from queue import Queue
 total_queue = []
 ROUNDS = -1
 class Process(threading.Thread):
@@ -14,57 +15,88 @@ class Process(threading.Thread):
         self.end = end
         self.area = 0
         self.temp = -1
+        self.send_once = True
+        self.timer = 0
+        self.interval = random.randint(1,10)
 
     def send(self):
+        self.timer+=self.interval
+        global total_queue,ROUNDS
+        if self.id != ROUNDS-1 and self.send_once:
+            # print("sent RIGHT! THREAD: {} : {}".format(self.id,{"id":self.id,"value":self.valuer,"timer":self.timer}))
+            total_queue[self.id]["right"].put({"id":self.id,"value":self.valuer,"timer":self.timer})
+        if self.id != 0 and self.send_once :
+            # print("sent LEFT! THREAD: {} : {} ".format(self.id,{"id":self.id,"value":self.valuel,"timer":self.timer}))
+            total_queue[self.id]["left"].put({"id":self.id,"value":self.valuel,"timer":self.timer})
+        self.send_once = False
+
+    def compute(self):
         global total_queue
+        self.timer+=self.interval
+        if self.id != ROUNDS-1:
+            # print("THREAD: {} ".format(self.id))
+            if not total_queue[self.id+1]["left"].empty():
+                self.temp = self.valuer
+                curr = total_queue[self.id+1]["left"].get()
+                # print("THREAD: {} checking {}. Current value {} and recieved {}".format(self.id,self.id+1,self.temp,curr))
+                total_queue[self.id+1]["left"].task_done()
+                if curr["value"] < self.valuer:
+                    self.valuer = curr["value"]
+                    # print("THREAD: {} checking {}. Current value {} and recieved {}".format(self.id,self.id+1,self.temp,curr))
+                    if curr["timer"] > self.timer:
+                        self.timer = curr["timer"]+1
+                    self.LS.append((curr,{"prevr":self.valuer,"new":curr["value"],"from_id":self.id+1,"self_id":self.id,"timer":self.timer}))
+                    if self.end:
+                        self.area += 1
+                        # if self.area<0:
+                        #     self.area = -1
+                        # if self.area>0:
+                        #     self.area = 1
+                self.send_once = True
+                # self.round+=1self.round+=1
+
+        if self.id  != 0:
+            # print("THREAD: {} checking {}".format(self.id,self.id-1))
+            if not total_queue[self.id-1]["right"].empty():
+                self.temp = self.valuel
+                curr = total_queue[self.id-1]["right"].get()
+                # print("THREAD: {} checking {}. Current value {} and recieved {}".format(self.id,self.id-1,self.temp,curr))
+                total_queue[self.id-1]["right"].task_done()
+                if self.valuel < curr["value"]:
+                    self.valuel = curr["value"]
+                    # print("THREAD: {} checking {}. Current value {} and recieved {}".format(self.id,self.id-1,self.temp,curr))
+                    if curr["timer"] > self.timer:
+                        self.timer = curr["timer"]+1
+                    self.LS.append((curr,{"prevl":self.valuel,"new":curr["value"],"from_id":self.id-1,"timer":self.timer}))
+                    if self.end:
+                        self.area-=1
+                        # if self.area<0:
+                        #     self.area = -1
+                        # if self.area>0:
+                        #     self.area = 1
+                self.send_once = True
+                # self.round+=1
         if self.valuer < self.valuel:
             self.temp = self.valuel
             self.valuel = self.valuer
             self.valuer = self.temp
-        if not self.end == 1:
-            total_queue[self.id]["right"].append({"id":self.id,"value":self.valuer})
-        if not self.end == -1:
-            total_queue[self.id]["left"].append({"id":self.id,"value":self.valuel})
+            # self.round+=1
 
     def receive(self):
         global total_queue
-        if not self.end == 1:
-            if len(total_queue[self.id+1]["left"]):
-                curr = total_queue[self.id+1]["left"].pop()
-                if curr["value"] < self.valuer:
-                    self.LS.append({"prevr":self.valuer,"new":curr["value"],"from_id":self.id+1,})
-                    if self.end:
-                        self.area += 1
-                        if self.area<0:
-                            self.area = -1
-                        if self.area>0:
-                            self.area = 1
-                    self.valuer = curr["value"]
+        self.timer+=self.interval
+        self.compute()
 
-        if not self.end == -1:
-            if len(total_queue[self.id-1]["right"]):
-                curr = total_queue[self.id-1]["right"].pop()
-                if self.valuel < curr["value"]:
-                    self.LS.append({"prevl":self.valuel,"new":curr["value"],"from_id":self.id-1})
-                    if self.end:
-                        self.area-=1
-                        if self.area<0:
-                            self.area = -1
-                        if self.area>0:
-                            self.area = 1
-                    self.valuel = curr["value"]
-        if self.valuer < self.valuel:
-            self.temp = self.valuel
-            self.valuel = self.valuer
-            self.valuer = self.temp
     def run(self):
-        global ROUNDS
-        while self.round<ROUNDS-1:
+        global ROUNDS,total_queue
+        # self.send()
+        while self.round<=ROUNDS-1:
+            time.sleep(0.001)
             self.receive()
             self.send()
-            time.sleep(0.01)
+            # if self.round % 5:
+            #     print("Thread: {} - L:{} R:{} Timer:{}".format(self.id,self.valuel,self.valuer,self.timer))
             self.round+=1
-
 
 if __name__ == '__main__':
     n = int(input("Number of Elements\n"))
@@ -77,10 +109,11 @@ if __name__ == '__main__':
             end = 0
         if i == n-1:
             end = 1
-        original.append(random.randint(0,10000))
+        # h = int(input("input NO: {} ".format(i)))
+        original.append(random.randint(1,10000))
         threads_queue.append(Process(i,original[-1],end))
-        total_queue.append({"left":[],"right":[]})
-    print("Original array:",original)
+        total_queue.append({"left": Queue(),"right":Queue()})
+    # print("Original array:",original)
     for thread_obj in threads_queue:
         thread_obj.start()
 
@@ -88,9 +121,13 @@ if __name__ == '__main__':
         thread_obj.join()
 
     print("Threads finished")
+    output = []
     for thread_obj in threads_queue:
-        # print(thread_obj.LS)
-        if thread_obj.area ==-1:
-            print(thread_obj.valuer)
+        if thread_obj.area <0:
+            output.append(thread_obj.valuer)
         else:
-            print(thread_obj.valuel)
+            output.append(thread_obj.valuel)
+    print("Original: {}".format(original))
+    print("Sorted: {}".format(output))
+    if set(output) != set(original):
+        print("ERROR")
