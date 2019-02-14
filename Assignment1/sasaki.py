@@ -29,8 +29,8 @@ class Process(threading.Thread):
     Internal components:
         temp (int): Used to store temp values
         sendonce (boolean): Ensures one message is send on a queue
-        gotfromr (boolean): Ensures one message recieved from `right` queue
-        gotfroml (boolean): Ensures one message recieved from `left` queue
+        gotfromr (boolean): Ensures one message received from `right` queue
+        gotfroml (boolean): Ensures one message received from `left` queue
         end (int): Indicates extremes of procedure
 
     Key points:
@@ -77,6 +77,8 @@ class Process(threading.Thread):
         global threads_queue,ROUNDS
         displ = ""
         temp = ROUNDS/5
+        if temp == 0:
+            temp = 1
         for threadobj in threads_queue:
             if threadobj.id % temp == 0:
                 displ+="Thread ID: {} values:{} round:{}\n".format(threadobj.id,(threadobj.valuel,threadobj.valuer),threadobj.round)
@@ -106,11 +108,11 @@ class Process(threading.Thread):
     def receive(self,end=False):
         """
         Receive function
-        - recieves the messages in the queues
+        - receives the messages in the queues
         @Param:
             end (boolean): Tweak used to keep thread running so that idle thread can still send for previous processes
         returns:
-            boolean: indicating if the packet was recieved
+            boolean: indicating if the packet was received
         """
         global total_queue
         pl = None
@@ -226,10 +228,10 @@ if __name__ == '__main__':
     # Argument parser
     parser = argparse.ArgumentParser(description="Sasaki sorting algorithm")
     parser.add_argument("-d","--details",action='store_true',help="Shows detailed description of classes")
-    parser.add_argument("-v","--verbrose",action='store_false',help="prints the intermediate stages. Can take time to print")
+    parser.add_argument("-v","--verbose",action='store_false',help="prints the intermediate stages. Can take time to print")
     parser.add_argument("-num",type=int,help="Total number of elements")
     args=parser.parse_args()
-    Process.quiet = args.verbrose
+    Process.quiet = args.verbose
     if args.details:
         help(Process)
         sys.exit(0)
@@ -250,7 +252,12 @@ if __name__ == '__main__':
             end = 1
         original.append(random.randint(1,100000))
         threads_queue.append(Process(i,original[-1],end))
-        total_queue.append({"left": Queue(),"right":Queue()})
+        if i == 0:
+            total_queue.append({"right":Queue()})
+        elif i == n-1:
+            total_queue.append({"left":Queue()})
+        else:
+            total_queue.append({"left":Queue(),"right":Queue()})
     start = time.time()
 
     #Process starts
@@ -272,7 +279,7 @@ if __name__ == '__main__':
         else:
             output.append(thread_obj.valuel)
 
-    print("Original: {}".format(original))
+    print("Original: {}\n".format(original))
     print("Sorted: {}".format(output))
 
     # Sanity check
