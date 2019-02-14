@@ -51,18 +51,10 @@ class Process(threading.Thread):
         """
         threading.Thread.__init__(self)
         self.id = id
-        self.round = 0
-        self.valuer = None if end == 1 else value
-        self.valuel = None if end == -1 else value
+        self.value = None if end == -1 else value
         self.end = end
-        self.area = self.end if end!=1 else 0
-        self.temp = -1
-        self.markedr = False
-        self.markedl = False
-        if self.end == -1:
-            self.markedr = True
-        if self.end == 1:
-            self.markedl = True
+        self.templ = -1
+        self.tempr = -1
         self.sendonce = True
         self.gotfromr = False
         self.gotfroml = False
@@ -83,25 +75,23 @@ class Process(threading.Thread):
         sys.stdout.write("%s" % displ)
         sys.stdout.flush()
 
-    def send(self,end=False):
+    def send(self,mastersend=False):
         """
         Send function
         - Sends the messages in the queues
         @Param:
             end (boolean): Tweak used to keep thread running so that idle thread can still send for previous processes
         """
-        global total_queue
-        if self.valuer!=None and total_queue[self.id]["right"].empty():
-            if end:
-                total_queue[self.id]["right"].put({"id":self.id,"marked":self.markedr,"value":self.valuer,"round":self.round-1})
-            else:
-                total_queue[self.id]["right"].put({"id":self.id,"marked":self.markedr,"value":self.valuer,"round":self.round})
-        if self.valuel!=None and total_queue[self.id]["left"].empty():
-            if end:
-                total_queue[self.id]["left"].put({"id":self.id,"marked":self.markedl,"value":self.valuel,"round":self.round-1})
-            else:
-                total_queue[self.id]["left"].put({"id":self.id,"marked":self.markedl,"value":self.valuel,"round":self.round})
+        if self.flag == 0 and self.sendonce:
+            total_queue[self.id]["right"].put({"value":self.value,"round":self.round,"id":self.id})
+        if self.flag == 2 and self.sendonce:
+            total_queue[self.id]["left"].put({"value":self.value,"round":self.round,"id":self.id})
+        if self.flag == 1 and self.sendonce:
+            if mastersend:
+                total_queue[self.id]["right"].put({"value":self.value,"round":self.round,"id":self.id})
+                total_queue[self.id]["left"].put({"value":self.value,"round":self.round,"id":self.id})
         self.sendonce = False
+
 
     def receive(self,end=False):
         """
@@ -115,44 +105,24 @@ class Process(threading.Thread):
         global total_queue
         pl = None
         pr = None
-        if self.valuer != None:
-            if end:
-                if not total_queue[self.id+1]["left"].empty():
-                    pr = total_queue[self.id+1]["left"].get()
-                    if pr["round"] < self.round:
-                        self.send(True)
-                        return False
-                    else:
-                        return True
+        if not total_queue[self.id+1]["left"].empty():
+            pr = total_queue[self.id+1]["left"].get()
+            total_queue[self.id+1]["left"].task_done()
+            if pr["round"] != self.round:
+                pr = None
+            else:
+                self.gotfromr = True
 
-            if not total_queue[self.id+1]["left"].empty():
-                pr = total_queue[self.id+1]["left"].get()
-                total_queue[self.id+1]["left"].task_done()
-                if pr["round"] != self.round:
-                    pr = None
-                else:
-                    self.gotfromr = True
-
-        if self.valuel != None :
-            if end:
-                if not total_queue[self.id-1]["right"].empty():
-                    pl = total_queue[self.id-1]["right"].get()
-                    total_queue[self.id-1]["right"].task_done()
-                    if pl["round"] != self.round:
-                        self.send(True)
-                        return False
-                    else:
-                        return True
-
-            if not total_queue[self.id-1]["right"].empty():
-                pl = total_queue[self.id-1]["right"].get()
-                total_queue[self.id-1]["right"].task_done()
-                if pl["round"] != self.round:
-                    pl = None
-                else:
-                    self.gotfroml = True
+        if not total_queue[self.id-1]["right"].empty():
+            pl = total_queue[self.id-1]["right"].get()
+            total_queue[self.id-1]["right"].task_done()
+            if pl["round"] != self.round:
+                pl = None
+            else:
+                self.gotfroml = True
 
         self.compute(pr,pl)
+
 
 
     def compute(self,pktr,pktl):
@@ -162,7 +132,7 @@ class Process(threading.Thread):
         @Param:
             pktr,pktl (dict or None): Message from receive function
         """
-        if pktl != None:
+        if pktl != None and pktr != None:
             if self.valuel < pktl["value"]:
                 self.valuel = pktl["value"]
                 if pktl["marked"]:
@@ -170,10 +140,11 @@ class Process(threading.Thread):
                 if self.markedl:
                     self.area+=1
                 self.markedl = pktl["marked"]
-        if pktr != None:
+        elif pktr != None:
             if self.valuer > pktr["value"]:
                 self.valuer = pktr["value"]
                 self.markedr = pktr["marked"]
+        elif pktl != None:
 
 
     def run(self):
@@ -182,40 +153,7 @@ class Process(threading.Thread):
         - main function equivalent in the process
         - here the conditions for rounds are checked. Final loop is for idle message passing
         """
-        global ROUNDS,total_queue
-        while self.round<ROUNDS-1:
-            self.send()
-            self.receive()
-            if (self.round not in self.doneround) and not Process.quiet:
-                if self.round % 5 == 0:
-                    Process.print_threads()
-                self.doneround.add(self.round)
-            if self.gotfroml and self.gotfromr:
-                self.sendonce = True
-                self.gotfromr = False
-                self.gotfroml = False
-            elif self.gotfromr and self.valuel == None:
-                self.round+=1
-                self.sendonce = True
-                self.gotfromr = False
-            elif self.gotfroml and self.valuer == None:
-                self.round+=1
-                self.sendonce = True
-                self.gotfroml = False
-            if self.valuel!= None and  self.valuer!= None and self.sendonce:
-                if self.valuel > self.valuer:
-                    self.temp = self.valuel
-                    self.valuel =self.valuer
-                    self.valuer = self.temp
-                    self.temp = self.markedl
-                    self.markedl = self.markedr
-                    self.markedr = self.temp
-                self.round+=1
-            time.sleep(0.0001)
 
-        k = True
-        while k:
-            k = self.receive(True)
 
 
 
